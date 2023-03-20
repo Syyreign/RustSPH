@@ -7,7 +7,7 @@ use bevy::prelude::*;
 struct FixedUpdateStage;
 
 const DELTA_TIME: f32 = 0.001;
-const SMOOTHING_RADIUS: f32 = 0.01;
+const SMOOTHING_RADIUS: f32 = 0.5;
 const PRESSURE_CONSTANT: f32 = 20.0;
 const REFERENCE_DENSITY: f32 = 20.0;
 const MAX_ACCELERATION: f32 = 100.0;
@@ -87,14 +87,15 @@ fn setup_scene(
     });
 
     let points = 
-        [Vec3{ x: 0.0, y: -80.0, z: 0.0}, 
-        Vec3{ x: 0.0, y: 80.0, z: 0.0}, 
-        Vec3{ x: -20.0, y: 0.0, z: 0.0}, 
-        Vec3{ x: 20.0, y: 0.0, z: 0.0}, 
-        Vec3{ x: 0.0, y: 0.0, z: -20.0}, 
-        Vec3{ x: 0.0, y: 0.0, z: 20.0}];
+        [Vec3{ x: 0.0, y: -1.5, z: 0.0}, 
+        Vec3{ x: 0.0, y: 1.5, z: 0.0}, 
+        Vec3{ x: -0.5, y: 0.0, z: 0.0}, 
+        Vec3{ x: 0.5, y: 0.0, z: 0.0}, 
+        Vec3{ x: 0.0, y: 0.0, z: -0.5}, 
+        Vec3{ x: 0.0, y: 0.0, z: 0.5}];
 
-    let normals = [Vec3{ x: 0.0, y: 1.0, z: 0.0}, 
+    let normals = [
+        Vec3{ x: 0.0, y: 1.0, z: 0.0}, 
         Vec3{ x: 0.0, y: -1.0, z: 0.0}, 
         Vec3{ x: 1.0, y: 0.0, z: 0.0}, 
         Vec3{ x: -1.0, y: 0.0, z: 0.0}, 
@@ -111,7 +112,7 @@ fn setup_scene(
     }
 
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(150.0, 70.0, -150.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(3.0, 0.7, -3.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
 
@@ -126,20 +127,20 @@ fn generate_fluid(
 
     let mesh = meshes.add(
         Mesh::try_from(shape::Icosphere {
-            radius: 0.5,
+            radius: 0.1,
             subdivisions: 3,
         })
         .unwrap(),
     );
 
     for i in 0..2{
-        for j in 0..2{
+        for j in 0..3{
             for k in 0..2{
 
                 let position = Vec3::new(
-                    0.0 + (i as f32 * 0.5) + (j as f32 * 0.6),
-                    0.0 + (j as f32 * 2.0),
-                    0.0 + (k as f32 * 0.5) + (j as f32 * 0.6),
+                    0.0 + (i as f32 * 0.05) + (j as f32 * 0.06),
+                    0.0 + (j as f32 * 0.01),
+                    0.0 + (k as f32 * 0.05) + (j as f32 * 0.06),
                 );
 
                 commands.spawn((ParticleBundle {
@@ -152,7 +153,7 @@ fn generate_fluid(
                         material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
                         ..default()
                     },
-                    mass: Mass(10.0),
+                    mass: Mass(1.0),
                     density: Density(0.0),
                     pressure: Pressure(0.0),
                     acceleration: Acceleration(Vec3::ZERO),
@@ -168,18 +169,22 @@ fn generate_fluid(
 
 }
 
-fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut Pressure, &mut Acceleration), With<Particle>>) {
+fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut Pressure, &mut Acceleration, &Velocity), With<Particle>>) {
     
     {
         let mut iter = query.iter_combinations_mut();
 
         // Set the density of each particle
-        while let Some([(Mass(m1), transform1, mut density1, _pressure1, mut _accel1), 
-            (Mass(m2), transform2, mut density2, _pressure2, mut _accel2)]) =
+        while let Some([(Mass(m1), transform1, mut density1, _pressure1, mut _accel1, _velocity1), 
+            (Mass(m2), transform2, mut density2, _pressure2, mut _accel2, _velocity2)]) =
             iter.fetch_next()
         {
             let delta = transform2.translation() - transform1.translation();
             let distance_sq: f32 = delta.length_squared();
+
+            if distance_sq > SMOOTHING_RADIUS * SMOOTHING_RADIUS{
+                continue;
+            }
 
             let poly6 = get_poly6_smoothing(distance_sq);
             density1.0 += *m1 * poly6;
@@ -188,7 +193,7 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
     }
 
     // Set the pressure of the particle
-    for (_mass, _transform, mut density, mut pressure, mut _accel) in &mut query {
+    for (_mass, _transform, mut density, mut pressure, mut _accel, _velocity) in &mut query {
         if density.0 < REFERENCE_DENSITY{
             density.0 = REFERENCE_DENSITY;
         }
@@ -201,13 +206,17 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
         let mut iter = query.iter_combinations_mut();
 
         // Set the density of each particle
-        while let Some([(Mass(m1), transform1, density1, pressure1, mut accel1), 
-            (Mass(m2), transform2, density2, pressure2, mut accel2)]) =
+        while let Some([(Mass(m1), transform1, density1, pressure1, mut accel1, velocity1), 
+            (Mass(m2), transform2, density2, pressure2, mut accel2, velocity2)]) =
             iter.fetch_next()
         {
             let rij = transform1.translation() - transform2.translation();
             let rji = transform2.translation() - transform1.translation();
             let distance_sq: f32 = rij.length_squared();
+
+            if distance_sq > SMOOTHING_RADIUS{
+                continue;
+            }
 
             let spiky = get_spiky_smoothing(distance_sq);
 
@@ -221,21 +230,23 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
 
             // Viscocity Acceleration
             let epsillon = 0.018;
+            let vjvi = velocity2.0 - velocity1.0;
+            let vivj = velocity1.0 - velocity2.0;
 
             if density2.0 > NEAR_ZERO { 
-                let av1 = epsillon * (m2/m1) * (1.0 / density2.0) * (rji.normalize()) * get_viscosity_smoothing(distance_sq);
+                let av1 = epsillon * (m2/m1) * (1.0 / density2.0) * (vjvi) * get_viscosity_smoothing(distance_sq);
                 accel1.0 += av1;
 
             }
             if density1.0 > NEAR_ZERO {
-                let av2 = epsillon * (m1/m2) * (1.0 / density1.0) * (rij.normalize()) * get_viscosity_smoothing(distance_sq);
+                let av2 = epsillon * (m1/m2) * (1.0 / density1.0) * (vivj) * get_viscosity_smoothing(distance_sq);
                 accel2.0 += av2;
             }
         }
     }
 
     // Add gravity and clamp
-    for (_mass, _transform, _density, _pressure, mut accel) in &mut query {
+    for (_mass, _transform, _density, _pressure, mut accel, _velocity) in &mut query {
         accel.0 += Vec3{ x: 0.0, y: -9.8, z: 0.0};
 
         if accel.0.length() > MAX_ACCELERATION {
