@@ -10,10 +10,11 @@ struct FixedUpdateStage;
 
 const DELTA_TIME: f32 = 0.001;
 const SMOOTHING_RADIUS: f32 = 0.5;
-const PRESSURE_CONSTANT: f32 = 20.0;
-const REFERENCE_DENSITY: f32 = 20.0;
+const PRESSURE_CONSTANT: f32 = 15.0;
+const REFERENCE_DENSITY: f32 = 15.0;
 const MAX_ACCELERATION: f32 = 100.0;
 const MAX_VELOCITY: f32 = 100.0;
+const MASS: f32 = 1.0;
 const NEAR_ZERO: f32 = 0.0000001;
 
 fn main(){
@@ -106,7 +107,7 @@ fn spawn_particle(
                 material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
                 ..default()
             },
-            mass: Mass(1.0),
+            mass: Mass(MASS),
             density: Density(0.0),
             pressure: Pressure(0.0),
             acceleration: Acceleration(Vec3::ZERO),
@@ -245,7 +246,6 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
         }
         
         pressure.0 = PRESSURE_CONSTANT * (density.0 - REFERENCE_DENSITY);
-        let x =5;
     }
 }
 
@@ -258,38 +258,42 @@ fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pre
         iter.fetch_next()
     {
         let mut rij = transform1.translation() - transform2.translation();
-        let mut rji = transform2.translation() - transform1.translation();
         let distance_sq: f32 = rij.length_squared();
-
-        rij = rij.normalize();
-        rji = rji.normalize();
 
         if distance_sq > SMOOTHING_RADIUS{
             continue;
         }
 
+        rij = rij.normalize();
+
+        // vector from j to i is same as i to j * -1
+        let rji = rij * -1.0;
+
         let spiky = get_spiky_smoothing(distance_sq);
 
         // Acceleration
         if density1.0.abs() > NEAR_ZERO && density2.0.abs() > NEAR_ZERO && !rji.is_nan(){
-            accel1.0 += -(( *m2/ *m1) * ((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0))) 
+
+            // Removed mass since all particles have the same mass
+            accel1.0 += -((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0)) 
                 * spiky * rij;
-            accel2.0 += -(( *m1/ *m2) * ((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0)))
+            accel2.0 += -((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0))
             * spiky * rji;
         }
 
         // Viscocity Acceleration
-        let epsillon = 0.018;
+        let visc_coef = 0.02;
         let vjvi = velocity2.0 - velocity1.0;
-        let vivj = velocity1.0 - velocity2.0;
+        let vivj = vjvi * -1.0;
+        let visc = get_viscosity_smoothing(distance_sq);
 
         if density2.0 > NEAR_ZERO { 
-            let av1 = epsillon * (m2/m1) * (1.0 / density2.0) * (vjvi) * get_viscosity_smoothing(distance_sq);
+            let av1 = visc_coef * (m2/density1.0) * (1.0 / density2.0) * (vjvi) * visc;
             accel1.0 += av1;
 
         }
         if density1.0 > NEAR_ZERO {
-            let av2 = epsillon * (m1/m2) * (1.0 / density1.0) * (vivj) * get_viscosity_smoothing(distance_sq);
+            let av2 = visc_coef * (m1/density2.0) * (1.0 / density1.0) * (vivj) * visc;
             accel2.0 += av2;
         }
     }
@@ -306,17 +310,20 @@ fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pre
 }
 
 fn plane_collision(
-    mut particles: Query<(&Acceleration, &mut Velocity, &Transform), With<Particle>>,
+    mut particles: Query<(&mut Velocity, &mut Transform), With<Particle>>,
     mut planes: Query<(&Point, &Normal), With<Plane>>,
 ){
-    for (mut _acceleration, mut velocity, transform) in &mut particles {
+    for (mut velocity, mut transform) in &mut particles {
         for (point, normal) in &mut planes{
 
-            // Point is colliding if < 0.0
-            if (transform.translation - point.0).dot(normal.0) < 0.0 && velocity.0.dot(normal.0) < 0.0{
-                velocity.0 = -((0.75 * normal.0).dot(velocity.0)) * (normal.0);
-                //velocity.0 += normal.0 * 0.5;
+            // If we are inside of the bounds or outside, but moving back into bounds continue
+            if (transform.translation - point.0).dot(normal.0) > 0.0 || velocity.0.dot(normal.0) > 0.0{
+                continue;
             }
+
+            velocity.0 = -((0.75 * normal.0).dot(velocity.0)) * (normal.0);
+            transform.translation = ((point.0 - transform.translation) * normal.0.abs()) + transform.translation;
+                
         }
         
     }
@@ -327,10 +334,14 @@ fn plane_collision(
 /// Ouput. The poly6 smoothing kernel
 /// 
 fn get_poly6_smoothing(distance_sq: f32) -> f32{
+    if distance_sq > SMOOTHING_RADIUS * SMOOTHING_RADIUS {
+        return 0.0;
+    }
+
     let mut poly6 = (SMOOTHING_RADIUS * SMOOTHING_RADIUS) - distance_sq;
 
     poly6 = f32::powf(poly6, 3.0);
-    poly6 = (315.0 / (64.0 * PI * f32::powf(SMOOTHING_RADIUS, 9.0))) * poly6;
+    poly6 = (945.0 / (32.0 * PI * f32::powf(SMOOTHING_RADIUS, 9.0))) * poly6;
 
     poly6
 }
@@ -350,22 +361,9 @@ fn get_viscosity_smoothing(distance_sq: f32) -> f32{
     (45.0 / (PI * f32::powf(SMOOTHING_RADIUS, 6.0))) * (SMOOTHING_RADIUS - f32::sqrt(distance_sq))
 }
 
-fn integrate(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Transform, &mut LastPos)>) {
-    // let dt_sq = (DELTA_TIME * DELTA_TIME) as f32;
-    // for (mut acceleration, mut velocity, mut transform, mut last_pos) in &mut query {
-    //     // verlet integration
-    //     // x(t+dt) = 2x(t) - x(t-dt) + a(t)dt^2 + O(dt^4)
-    //     println!("Integrate. accel: {}", acceleration.0);
-    //     //velocity.0 = veloctiy.0 + 
+fn integrate(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Transform)>) {
 
-    //     let new_pos =
-    //         (transform.translation + transform.translation) - last_pos.0 + (acceleration.0 * dt_sq);
-    //     acceleration.0 = Vec3::ZERO;
-    //     last_pos.0 = transform.translation;
-    //     transform.translation = new_pos;
-    // }
-
-    for (mut acceleration, mut velocity, mut transform, mut last_pos) in &mut query {
+    for (mut acceleration, mut velocity, mut transform) in &mut query {
         velocity.0 = velocity.0 + (acceleration.0 * DELTA_TIME as f32);
         if velocity.0.length() > MAX_VELOCITY {
             velocity.0 = velocity.0.normalize() * MAX_VELOCITY;
@@ -374,7 +372,6 @@ fn integrate(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Transform,
         transform.translation = transform.translation + (velocity.0 * DELTA_TIME as f32);
         acceleration.0 = Vec3::ZERO;
     }
-    //println!("Integrate");
 }
 
 fn clean_particle(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Density, &mut Pressure)>){
@@ -384,5 +381,4 @@ fn clean_particle(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Densi
         density.0 = 0.0;
         pressure.0 = 0.0;
     }
-    let x = 5;
 }
