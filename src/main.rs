@@ -5,6 +5,8 @@ use bevy::prelude::*;
 
 use rand::Rng;
 
+mod components;
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 struct FixedUpdateStage;
 
@@ -16,6 +18,7 @@ const MAX_ACCELERATION: f32 = 100.0;
 const MAX_VELOCITY: f32 = 100.0;
 const MASS: f32 = 1.0;
 const NEAR_ZERO: f32 = 0.0000001;
+const VISC_COEF: f32 = 0.02;
 
 fn main(){
     App::new()
@@ -32,51 +35,11 @@ fn main(){
                 .after(update_pressure), 
             //plane_collision, 
             integrate
-                .after(update_acceleration),
+                .after(update_pressure),
             plane_collision
                 .after(integrate)
         ).in_schedule(CoreSchedule::FixedUpdate))
         .run();
-}
-
-#[derive(Component)]
-struct Particle;
-#[derive(Component, Default)]
-struct Mass(f32);
-#[derive(Component, Default)]
-struct Density(f32);
-#[derive(Component, Default)]
-struct Pressure(f32);
-#[derive(Component, Default)]
-struct Acceleration(Vec3);
-#[derive(Component, Default)]
-struct Velocity(Vec3);
-#[derive(Component, Default)]
-struct LastPos(Vec3);
-
-// Components for collision plane
-#[derive(Component)]
-struct Plane;
-#[derive(Component, Default)]
-struct Point(Vec3);
-#[derive(Component, Default)]
-struct Normal(Vec3);
-
-#[derive(Bundle, Default)]
-struct ParticleBundle{
-    pbr: PbrBundle,
-    mass: Mass,
-    density: Density,
-    pressure: Pressure,
-    acceleration: Acceleration,
-    velocity: Velocity,
-    last_pos: LastPos,
-}
-
-#[derive(Bundle, Default)]
-struct PlaneBundle{
-    point: Point,
-    normal: Normal,
 }
 
 fn spawn_particle(
@@ -97,7 +60,7 @@ fn spawn_particle(
         let mut rng = rand::thread_rng();
         let position = Vec3::new(rng.gen_range(-0.5..0.5), 1.0, rng.gen_range(-0.5..0.5));
 
-        commands.spawn((ParticleBundle {
+        commands.spawn((components::ParticleBundle {
             pbr: PbrBundle {
                 transform: Transform {
                     translation: position,
@@ -107,14 +70,14 @@ fn spawn_particle(
                 material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
                 ..default()
             },
-            mass: Mass(MASS),
-            density: Density(0.0),
-            pressure: Pressure(0.0),
-            acceleration: Acceleration(Vec3::ZERO),
-            velocity: Velocity(Vec3::ZERO),
-            last_pos: LastPos(position),
+            mass: components::Mass(MASS),
+            density: components::Density(0.0),
+            pressure: components::Pressure(0.0),
+            acceleration: components::Acceleration(Vec3::ZERO),
+            velocity: components::Velocity(Vec3::ZERO),
+            last_pos: components::LastPos(position),
         },
-        Particle,
+        components::Particle,
         ));
     }
 }
@@ -136,12 +99,12 @@ fn setup_scene(
     });
 
     let points = 
-        [Vec3{ x: 0.0, y: -1.5, z: 0.0}, 
-        Vec3{ x: 0.0, y: 1.5, z: 0.0}, 
-        Vec3{ x: -0.5, y: 0.0, z: 0.0}, 
-        Vec3{ x: 0.5, y: 0.0, z: 0.0}, 
-        Vec3{ x: 0.0, y: 0.0, z: -0.5}, 
-        Vec3{ x: 0.0, y: 0.0, z: 0.5}];
+        [Vec3{ x: 0.0, y: -2.0, z: 0.0}, 
+        Vec3{ x: 0.0, y: 2.0, z: 0.0}, 
+        Vec3{ x: -2.0, y: 0.0, z: 0.0}, 
+        Vec3{ x: 2.0, y: 0.0, z: 0.0}, 
+        Vec3{ x: 0.0, y: 0.0, z: -2.0}, 
+        Vec3{ x: 0.0, y: 0.0, z: 2.0}];
 
     let normals = [
         Vec3{ x: 0.0, y: 1.0, z: 0.0}, 
@@ -152,16 +115,16 @@ fn setup_scene(
         Vec3{ x: 0.0, y: 0.0, z: -1.0}];
 
     for i in 0..points.len(){
-        commands.spawn((PlaneBundle {
-            point: Point(points[i]),
-            normal: Normal(normals[i]),
+        commands.spawn((components::PlaneBundle {
+            point: components::Point(points[i]),
+            normal: components::Normal(normals[i]),
         },
-        Plane
+        components::Plane
         ));
     }
 
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(3.0, 0.7, -3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(6.0, 2.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
 
@@ -182,9 +145,9 @@ fn generate_fluid(
         .unwrap(),
     );
 
-    for i in 0..1{
-        for j in 0..1{
-            for k in 0..1{
+    for i in 0..4{
+        for j in 0..4{
+            for k in 0..4{
 
                 let position = Vec3::new(
                     0.0 + (i as f32 * 0.05) + (j as f32 * 0.06),
@@ -192,7 +155,7 @@ fn generate_fluid(
                     0.0 + (k as f32 * 0.05) + (j as f32 * 0.06),
                 );
 
-                commands.spawn((ParticleBundle {
+                commands.spawn((components::ParticleBundle {
                     pbr: PbrBundle {
                         transform: Transform {
                             translation: position,
@@ -202,14 +165,14 @@ fn generate_fluid(
                         material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
                         ..default()
                     },
-                    mass: Mass(1.0),
-                    density: Density(0.0),
-                    pressure: Pressure(0.0),
-                    acceleration: Acceleration(Vec3::ZERO),
-                    velocity: Velocity(Vec3::ZERO),
-                    last_pos: LastPos(position),
+                    mass: components::Mass(1.0),
+                    density: components::Density(0.0),
+                    pressure: components::Pressure(0.0),
+                    acceleration: components::Acceleration(Vec3::ZERO),
+                    velocity: components::Velocity(Vec3::ZERO),
+                    last_pos: components::LastPos(position),
                 },
-                Particle,
+                components::Particle,
                 ));
             }
         }
@@ -218,19 +181,27 @@ fn generate_fluid(
 
 }
 
-fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut Pressure, &mut Acceleration, &Velocity), With<Particle>>) {
+fn update_pressure(mut query: Query<(
+    &components::Mass,
+    &Transform,
+    &mut components::Density,
+    &mut components::Pressure),
+    With<components::Particle>>) {
     
     let mut iter = query.iter_combinations_mut();
 
+    let mut delta: Vec3;
+    let mut distance_sq: f32;
+
     // Set the density of each particle
-    while let Some([(Mass(m1), transform1, mut density1, _pressure1, mut _accel1, _velocity1), 
-        (Mass(m2), transform2, mut density2, _pressure2, mut _accel2, _velocity2)]) =
+    while let Some([(components::Mass(m1), transform1, mut density1, _pressure1), 
+        (components::Mass(m2), transform2, mut density2, _pressure2)]) =
         iter.fetch_next()
     {
-        let delta = transform2.translation() - transform1.translation();
-        let distance_sq: f32 = delta.length_squared();
+        delta = transform2.translation - transform1.translation;
+        distance_sq = delta.length_squared();
 
-        if distance_sq > SMOOTHING_RADIUS * SMOOTHING_RADIUS{
+        if distance_sq > SMOOTHING_RADIUS{
             continue;
         }
 
@@ -240,7 +211,7 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
     }
 
     // Set the pressure of the particle
-    for (_mass, _transform, mut density, mut pressure, mut _accel, _velocity) in &mut query {
+    for (_mass, _transform, mut density, mut pressure) in &mut query {
         if density.0 < REFERENCE_DENSITY{
             density.0 = REFERENCE_DENSITY;
         }
@@ -249,16 +220,33 @@ fn update_pressure(mut query: Query<(&Mass, &GlobalTransform, &mut Density, &mut
     }
 }
 
-fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pressure, &mut Acceleration, &Velocity), With<Particle>>){
+fn update_acceleration(mut query: Query<(
+    &components::Mass,
+    &Transform,
+    &components::Density,
+    &components::Pressure,
+    &mut components::Acceleration,
+    &components::Velocity),
+    With<components::Particle>>){
+
     let mut iter = query.iter_combinations_mut();
 
+    let mut rij: Vec3;
+    let mut rji: Vec3;
+    let mut distance_sq: f32;
+    let mut spiky: f32;
+
+    let mut vjvi: Vec3;
+    let mut vivj: Vec3;
+    let mut visc: f32;
+
     // Set the density of each particle
-    while let Some([(Mass(m1), transform1, density1, pressure1, mut accel1, velocity1), 
-        (Mass(m2), transform2, density2, pressure2, mut accel2, velocity2)]) =
+    while let Some([(components::Mass(m1), transform1, density1, pressure1, mut accel1, velocity1), 
+        (components::Mass(m2), transform2, density2, pressure2, mut accel2, velocity2)]) =
         iter.fetch_next()
     {
-        let mut rij = transform1.translation() - transform2.translation();
-        let distance_sq: f32 = rij.length_squared();
+        rij = transform1.translation - transform2.translation;
+        distance_sq = rij.length_squared();
 
         if distance_sq > SMOOTHING_RADIUS{
             continue;
@@ -267,9 +255,9 @@ fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pre
         rij = rij.normalize();
 
         // vector from j to i is same as i to j * -1
-        let rji = rij * -1.0;
+        rji = rij * -1.0;
 
-        let spiky = get_spiky_smoothing(distance_sq);
+        spiky = get_spiky_smoothing(distance_sq);
 
         // Acceleration
         if density1.0.abs() > NEAR_ZERO && density2.0.abs() > NEAR_ZERO && !rji.is_nan(){
@@ -282,19 +270,16 @@ fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pre
         }
 
         // Viscocity Acceleration
-        let visc_coef = 0.02;
-        let vjvi = velocity2.0 - velocity1.0;
-        let vivj = vjvi * -1.0;
-        let visc = get_viscosity_smoothing(distance_sq);
+        vjvi = velocity2.0 - velocity1.0;
+        vivj = vjvi * -1.0;
+        visc = get_viscosity_smoothing(distance_sq);
 
         if density2.0 > NEAR_ZERO { 
-            let av1 = visc_coef * (m2/density1.0) * (1.0 / density2.0) * (vjvi) * visc;
-            accel1.0 += av1;
+            accel1.0 += VISC_COEF * (m2/density1.0) * (1.0 / density2.0) * (vjvi) * visc;
 
         }
         if density1.0 > NEAR_ZERO {
-            let av2 = visc_coef * (m1/density2.0) * (1.0 / density1.0) * (vivj) * visc;
-            accel2.0 += av2;
+            accel2.0 += VISC_COEF * (m1/density2.0) * (1.0 / density1.0) * (vivj) * visc;
         }
     }
 
@@ -310,8 +295,8 @@ fn update_acceleration(mut query: Query<(&Mass, &GlobalTransform, &Density, &Pre
 }
 
 fn plane_collision(
-    mut particles: Query<(&mut Velocity, &mut Transform), With<Particle>>,
-    mut planes: Query<(&Point, &Normal), With<Plane>>,
+    mut particles: Query<(&mut components::Velocity, &mut Transform), With<components::Particle>>,
+    mut planes: Query<(&components::Point, &components::Normal), With<components::Plane>>,
 ){
     for (mut velocity, mut transform) in &mut particles {
         for (point, normal) in &mut planes{
@@ -361,7 +346,7 @@ fn get_viscosity_smoothing(distance_sq: f32) -> f32{
     (45.0 / (PI * f32::powf(SMOOTHING_RADIUS, 6.0))) * (SMOOTHING_RADIUS - f32::sqrt(distance_sq))
 }
 
-fn integrate(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Transform)>) {
+fn integrate(mut query: Query<(&mut components::Acceleration, &mut components::Velocity, &mut Transform)>) {
 
     for (mut acceleration, mut velocity, mut transform) in &mut query {
         velocity.0 = velocity.0 + (acceleration.0 * DELTA_TIME as f32);
@@ -374,10 +359,8 @@ fn integrate(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Transform)
     }
 }
 
-fn clean_particle(mut query: Query<(&mut Acceleration, &mut Velocity, &mut Density, &mut Pressure)>){
+fn clean_particle(mut query: Query<(&mut components::Acceleration, &mut components::Velocity, &mut components::Density, &mut components::Pressure)>){
     for (mut _acceleration, mut _velocity, mut density, mut pressure) in &mut query {
-        //acceleration.0 = Vec3::ZERO;
-        //velocity.0 = Vec3::ZERO;
         density.0 = 0.0;
         pressure.0 = 0.0;
     }
