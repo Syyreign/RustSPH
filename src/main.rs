@@ -299,72 +299,14 @@ fn update_acceleration(mut query: Query<(
 fn plane_repulsion(
     mut particles: Query<(&components::Mass, 
         &mut components::Acceleration,
-        &mut components::Velocity,
         &mut Transform),
         With<components::Particle>>,
     mut planes: Query<(&components::Point, &components::Normal), With<components::Plane>>,
 ){
-    // Variables to find the pressure
-    // let mut density: f32 = 0.0;
-    // let mut pressure: f32 = 0.0;
     let mut distance_sq: f32 = 0.0;
-    // let mut poly6: f32;
-
-    // Variables to find the acceleration
     let mut rij: Vec3;
-    let mut spiky: f32;
 
-    /*
-    for (components::Mass(m), mut accel, velocity, transform) in &mut particles {
-
-        //Find the density of the particle
-        for (point, normal) in &mut planes{
-            rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
-            distance_sq = (rij).length_squared();
-
-            if distance_sq > WALL_SMOOTHING_RADIUS{
-                continue;
-            } 
-
-            poly6 = get_poly6_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
-            density = *m * poly6;
-
-        }
-
-        // Find the acceleration of the particle
-        for (point, normal) in &mut planes{
-            rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
-            distance_sq = (rij).length_squared();
-
-            rij = rij.normalize();
-
-            if distance_sq > WALL_SMOOTHING_RADIUS{
-                continue;
-            } 
-
-            if density < REFERENCE_DENSITY{
-                density = REFERENCE_DENSITY;
-            }
-            pressure = PRESSURE_CONSTANT * (density - REFERENCE_DENSITY);
-
-            if(density.abs() < NEAR_ZERO){
-                continue;
-            }
-
-            if !rij.is_nan(){
-                spiky = get_spiky_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
-                let acc = -((pressure + pressure) / (2.0 * density * density)) * spiky * rij;
-                accel.0 += acc;
-            }
-
-            let visc = get_viscosity_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
-            let visc_acc = 0.2 * (m / density) * (m / density) * (-velocity.0) * visc;
-            accel.0 += visc_acc;
-        }
-    }
-    */
-
-    for (components::Mass(m), mut accel, velocity, transform) in &mut particles {
+    for (components::Mass(m), mut accel, transform) in &mut particles {
         for (point, normal) in &mut planes{
             rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
             distance_sq = (rij).length_squared();
@@ -376,6 +318,7 @@ fn plane_repulsion(
     }
 }
 
+// A faux exponential so that the acceleration repulsion is stronger closer to the wall.
 fn wall_exp(x: f32, smoothing_radius: f32, scale: f32) -> f32{
     let a: f32 = 50000.0;
     scale * ((a.powf((-(1.0 / smoothing_radius) * x) + 1.0) - 1.0) / (a - 1.0))
