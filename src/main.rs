@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::f32::consts::{PI, E};
 
 use bevy::app::App;
 use bevy::prelude::*;
@@ -12,6 +12,7 @@ struct FixedUpdateStage;
 
 const DELTA_TIME: f32 = 0.001;
 const SMOOTHING_RADIUS: f32 = 0.5;
+const WALL_SMOOTHING_RADIUS: f32 = 0.5;
 const PRESSURE_CONSTANT: f32 = 15.0;
 const REFERENCE_DENSITY: f32 = 15.0;
 const MAX_ACCELERATION: f32 = 100.0;
@@ -33,7 +34,8 @@ fn main(){
                 .after(clean_particle), 
             update_acceleration
                 .after(update_pressure), 
-            //plane_collision, 
+            plane_repulsion
+                .after(update_acceleration), 
             integrate
                 .after(update_pressure),
             plane_collision
@@ -99,12 +101,12 @@ fn setup_scene(
     });
 
     let points = 
-        [Vec3{ x: 0.0, y: -2.0, z: 0.0}, 
-        Vec3{ x: 0.0, y: 2.0, z: 0.0}, 
-        Vec3{ x: -2.0, y: 0.0, z: 0.0}, 
-        Vec3{ x: 2.0, y: 0.0, z: 0.0}, 
-        Vec3{ x: 0.0, y: 0.0, z: -2.0}, 
-        Vec3{ x: 0.0, y: 0.0, z: 2.0}];
+        [Vec3{ x: 0.0, y: -1.0, z: 0.0}, 
+        Vec3{ x: 0.0, y: 1.0, z: 0.0}, 
+        Vec3{ x: -1.0, y: 0.0, z: 0.0}, 
+        Vec3{ x: 1.0, y: 0.0, z: 0.0}, 
+        Vec3{ x: 0.0, y: 0.0, z: -1.0}, 
+        Vec3{ x: 0.0, y: 0.0, z: 1.0}];
 
     let normals = [
         Vec3{ x: 0.0, y: 1.0, z: 0.0}, 
@@ -145,9 +147,9 @@ fn generate_fluid(
         .unwrap(),
     );
 
-    for i in 0..4{
-        for j in 0..4{
-            for k in 0..4{
+    for i in 0..1{
+        for j in 0..1{
+            for k in 0..1{
 
                 let position = Vec3::new(
                     0.0 + (i as f32 * 0.05) + (j as f32 * 0.06),
@@ -205,7 +207,7 @@ fn update_pressure(mut query: Query<(
             continue;
         }
 
-        let poly6 = get_poly6_smoothing(distance_sq);
+        let poly6 = get_poly6_smoothing(distance_sq, SMOOTHING_RADIUS);
         density1.0 += *m1 * poly6;
         density2.0 += *m2 * poly6;
     }
@@ -257,7 +259,7 @@ fn update_acceleration(mut query: Query<(
         // vector from j to i is same as i to j * -1
         rji = rij * -1.0;
 
-        spiky = get_spiky_smoothing(distance_sq);
+        spiky = get_spiky_smoothing(distance_sq, SMOOTHING_RADIUS);
 
         // Acceleration
         if density1.0.abs() > NEAR_ZERO && density2.0.abs() > NEAR_ZERO && !rji.is_nan(){
@@ -272,14 +274,14 @@ fn update_acceleration(mut query: Query<(
         // Viscocity Acceleration
         vjvi = velocity2.0 - velocity1.0;
         vivj = vjvi * -1.0;
-        visc = get_viscosity_smoothing(distance_sq);
+        visc = get_viscosity_smoothing(distance_sq, SMOOTHING_RADIUS);
 
         if density2.0 > NEAR_ZERO { 
-            accel1.0 += VISC_COEF * (m2/density1.0) * (1.0 / density2.0) * (vjvi) * visc;
+            accel1.0 += VISC_COEF * (m2/density1.0) * (m1 / density2.0) * (vjvi) * visc;
 
         }
         if density1.0 > NEAR_ZERO {
-            accel2.0 += VISC_COEF * (m1/density2.0) * (1.0 / density1.0) * (vivj) * visc;
+            accel2.0 += VISC_COEF * (m1/density2.0) * (m2 / density1.0) * (vivj) * visc;
         }
     }
 
@@ -294,6 +296,91 @@ fn update_acceleration(mut query: Query<(
 
 }
 
+fn plane_repulsion(
+    mut particles: Query<(&components::Mass, 
+        &mut components::Acceleration,
+        &mut components::Velocity,
+        &mut Transform),
+        With<components::Particle>>,
+    mut planes: Query<(&components::Point, &components::Normal), With<components::Plane>>,
+){
+    // Variables to find the pressure
+    // let mut density: f32 = 0.0;
+    // let mut pressure: f32 = 0.0;
+    let mut distance_sq: f32 = 0.0;
+    // let mut poly6: f32;
+
+    // Variables to find the acceleration
+    let mut rij: Vec3;
+    let mut spiky: f32;
+
+    /*
+    for (components::Mass(m), mut accel, velocity, transform) in &mut particles {
+
+        //Find the density of the particle
+        for (point, normal) in &mut planes{
+            rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
+            distance_sq = (rij).length_squared();
+
+            if distance_sq > WALL_SMOOTHING_RADIUS{
+                continue;
+            } 
+
+            poly6 = get_poly6_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
+            density = *m * poly6;
+
+        }
+
+        // Find the acceleration of the particle
+        for (point, normal) in &mut planes{
+            rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
+            distance_sq = (rij).length_squared();
+
+            rij = rij.normalize();
+
+            if distance_sq > WALL_SMOOTHING_RADIUS{
+                continue;
+            } 
+
+            if density < REFERENCE_DENSITY{
+                density = REFERENCE_DENSITY;
+            }
+            pressure = PRESSURE_CONSTANT * (density - REFERENCE_DENSITY);
+
+            if(density.abs() < NEAR_ZERO){
+                continue;
+            }
+
+            if !rij.is_nan(){
+                spiky = get_spiky_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
+                let acc = -((pressure + pressure) / (2.0 * density * density)) * spiky * rij;
+                accel.0 += acc;
+            }
+
+            let visc = get_viscosity_smoothing(distance_sq, WALL_SMOOTHING_RADIUS);
+            let visc_acc = 0.2 * (m / density) * (m / density) * (-velocity.0) * visc;
+            accel.0 += visc_acc;
+        }
+    }
+    */
+
+    for (components::Mass(m), mut accel, velocity, transform) in &mut particles {
+        for (point, normal) in &mut planes{
+            rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
+            distance_sq = (rij).length_squared();
+
+            let damp = accel.0.dot(normal.0.abs()).abs();
+
+            accel.0 += normal.0 * wall_exp(distance_sq, 1.0, 1.0 * damp);
+        }
+    }
+}
+
+fn wall_exp(x: f32, smoothing_radius: f32, scale: f32) -> f32{
+    let a: f32 = 50000.0;
+    scale * ((a.powf((-(1.0 / smoothing_radius) * x) + 1.0) - 1.0) / (a - 1.0))
+}
+
 fn plane_collision(
     mut particles: Query<(&mut components::Velocity, &mut Transform), With<components::Particle>>,
     mut planes: Query<(&components::Point, &components::Normal), With<components::Plane>>,
@@ -306,7 +393,7 @@ fn plane_collision(
                 continue;
             }
 
-            velocity.0 = -((0.75 * normal.0).dot(velocity.0)) * (normal.0);
+            velocity.0 = -((0.2 * normal.0).dot(velocity.0)) * (normal.0);
             transform.translation = ((point.0 - transform.translation) * normal.0.abs()) + transform.translation;
                 
         }
@@ -318,15 +405,15 @@ fn plane_collision(
 /// Input. distance_sq: The distance between two given particles
 /// Ouput. The poly6 smoothing kernel
 /// 
-fn get_poly6_smoothing(distance_sq: f32) -> f32{
-    if distance_sq > SMOOTHING_RADIUS * SMOOTHING_RADIUS {
+fn get_poly6_smoothing(distance_sq: f32, smoothing_radius: f32) -> f32{
+    if distance_sq > smoothing_radius * smoothing_radius {
         return 0.0;
     }
 
-    let mut poly6 = (SMOOTHING_RADIUS * SMOOTHING_RADIUS) - distance_sq;
+    let mut poly6 = (smoothing_radius * smoothing_radius) - distance_sq;
 
     poly6 = f32::powf(poly6, 3.0);
-    poly6 = (945.0 / (32.0 * PI * f32::powf(SMOOTHING_RADIUS, 9.0))) * poly6;
+    poly6 = (945.0 / (32.0 * PI * f32::powf(smoothing_radius, 9.0))) * poly6;
 
     poly6
 }
@@ -335,15 +422,15 @@ fn get_poly6_smoothing(distance_sq: f32) -> f32{
 /// Input. distance_sq: The distance between two given particles
 /// Ouput. The poly6 smoothing kernel
 /// 
-fn get_spiky_smoothing(distance_sq: f32) -> f32{
-    let mut spiky = f32::powf(SMOOTHING_RADIUS - f32::sqrt(distance_sq), 2.0);
-    spiky = (-45.0 / (PI * f32::powf(SMOOTHING_RADIUS, 6.0))) * spiky;
+fn get_spiky_smoothing(distance_sq: f32, smoothing_radius: f32) -> f32{
+    let mut spiky = f32::powf(smoothing_radius - f32::sqrt(distance_sq), 2.0);
+    spiky = (-45.0 / (PI * f32::powf(smoothing_radius, 6.0))) * spiky;
 
     spiky
 }
 
-fn get_viscosity_smoothing(distance_sq: f32) -> f32{
-    (45.0 / (PI * f32::powf(SMOOTHING_RADIUS, 6.0))) * (SMOOTHING_RADIUS - f32::sqrt(distance_sq))
+fn get_viscosity_smoothing(distance_sq: f32, smoothing_radius: f32) -> f32{
+    (45.0 / (PI * f32::powf(smoothing_radius, 6.0))) * (smoothing_radius - f32::sqrt(distance_sq))
 }
 
 fn integrate(mut query: Query<(&mut components::Acceleration, &mut components::Velocity, &mut Transform)>) {
