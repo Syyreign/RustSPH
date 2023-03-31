@@ -12,3 +12,8 @@ opt-level = 3
 [dependencies]
 bevy = "0.10.0"
 rand = "0.8.5"
+bevy_egui = "0.20"
+bevy_prototype_debug_lines = { version = "0.10.1", features = ["3d"] }
+
+[profile.release]
+# lto = "thin"

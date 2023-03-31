@@ -39,3 +39,34 @@ pub(crate) struct PlaneBundle{
     pub(crate) point: Point,
     pub(crate) normal: Normal,
 }
+
+#[derive(Resource)]
+pub(crate) struct FluidParameters {
+    pub(crate) delta_time: f32,
+    pub(crate) smoothing_radius: f32,
+    pub(crate) pressure_constant: f32,
+    pub(crate) reference_density: f32,
+    pub(crate) max_acceleration: f32,
+    pub(crate) max_velocity: f32,
+    pub(crate) mass: f32,
+    pub(crate) viscosity_coef: f32,
+    pub(crate) gravity: f32,
+    pub(crate) near_zero: f32,
+}
+
+impl Default for FluidParameters{
+    fn default() -> Self {
+        FluidParameters { 
+            delta_time: 0.01,
+            smoothing_radius: 0.5,
+            pressure_constant: 15.0,
+            reference_density: 15.0,
+            max_acceleration: 100.0,
+            max_velocity: 100.0,
+            mass: 1.0,
+            viscosity_coef: 0.02, 
+            gravity: -9.8,
+            near_zero: 0.0000001,
+        }
+    }
+}
