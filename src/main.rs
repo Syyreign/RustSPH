@@ -21,6 +21,7 @@ fn main(){
         .add_startup_system(setup_scene)
         .add_startup_system(generate_fluid)
         .init_resource::<FluidParameters>()
+        .init_resource::<CollisionParameters>()
         .add_system(spawn_particle,)
         .add_system(ui_system)
         //.add_system(draw_bounds)
@@ -41,72 +42,112 @@ fn main(){
         .run();
 }
 
-fn ui_system(mut contexts: EguiContexts, mut params: ResMut<FluidParameters>) {
+fn ui_system(mut contexts: EguiContexts, mut fluid_params: ResMut<FluidParameters>, mut coll_params: ResMut<CollisionParameters>) {
     egui::Window::new("Controls").show(contexts.ctx_mut(), |ui| {
         ui.label("Fluid Controls");
 
         ui.add(
-            egui::Slider::new(&mut params.delta_time, 0.0..=0.5)
+            egui::Slider::new(&mut fluid_params.delta_time, 0.0..=0.5)
             .text("Delta Time")
             .logarithmic(true),
         );
         ui.add(
-            egui::Slider::new(&mut params.smoothing_radius, 0.0..=10.)
+            egui::Slider::new(&mut fluid_params.smoothing_radius, 0.0..=10.)
             .text("Smoothing Radius"),
         );
         ui.add(
-            egui::Slider::new(&mut params.pressure_constant, 0.0..=100.)
+            egui::Slider::new(&mut fluid_params.pressure_constant, 0.0..=100.)
             .text("Pressure Constant"),
         );
         ui.add(
-            egui::Slider::new(&mut params.reference_density, 0.0..=100.)
+            egui::Slider::new(&mut fluid_params.reference_density, 0.0..=100.)
             .text("Reference Density"),
         );
         ui.add(
-            egui::Slider::new(&mut params.max_acceleration, 0.0..=1000.)
+            egui::Slider::new(&mut fluid_params.max_acceleration, 0.0..=1000.)
             .text("Max Acceleration"),
         );
         ui.add(
-            egui::Slider::new(&mut params.max_velocity, 0.0..=1000.)
+            egui::Slider::new(&mut fluid_params.max_velocity, 0.0..=1000.)
             .text("Max Velocity"),
         );
         ui.add(
-            egui::Slider::new(&mut params.mass, 0.0..=100.)
+            egui::Slider::new(&mut fluid_params.mass, 0.0..=100.)
             .text("Mass"),
         );
         ui.add(
-            egui::Slider::new(&mut params.viscosity_coef, 0.0..=10.)
+            egui::Slider::new(&mut fluid_params.viscosity_coef, 0.0..=10.)
             .text("Viscosity Coef"),
         );
+
+        // Collision. TODO make this not repeat
+        egui::Grid::new("top_point")
+            .num_columns(3)
+            .spacing([4.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| 
+        {
+            ui.add(
+                egui::DragValue::new(&mut coll_params.top_point[0])
+                .clamp_range(0.1..=10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::DragValue::new(&mut coll_params.top_point[1])
+                .clamp_range(0.1..=10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::DragValue::new(&mut coll_params.top_point[2])
+                .clamp_range(0.1..=10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::Label::new("Top Point")
+            );
+            ui.end_row();
+        });
+        
+        egui::Grid::new("bottom_point")
+            .num_columns(3)
+            .spacing([4.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| 
+        {
+            ui.add(
+                egui::DragValue::new(&mut coll_params.bottom_point[0])
+                .clamp_range(-0.1..=-10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::DragValue::new(&mut coll_params.bottom_point[1])
+                .clamp_range(-0.1..=-10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::DragValue::new(&mut coll_params.bottom_point[2])
+                .clamp_range(-0.1..=-10.)
+                .speed(0.1),
+            );
+            ui.add(
+                egui::Label::new("Bottom Point")
+            );
+            ui.end_row();
+        });
     });
 }
 
 fn draw_bounds(
+    coll_params: Res<CollisionParameters>,
     mut lines: ResMut<DebugLines>,
-    mut query: Query<(&components::Point, &components::Normal), With<components::Plane>>
+    mut query: Query<&mut components::Point, With<components::Plane>>
 ){
-
-    // let p1 = Vec3{x: -1.0, y: -1.0, z: -1.0};
-    // let p2 = Vec3{x: 1.0, y: 1.0, z: 1.0};
-
-    // p1[0];
-
-    // for j in 0..3 {
-    //     let mut mult = Vec3::ONE;
-    //     mult[j] = 0.0;
-
-    //     lines.line(p1, p1 * mult, 0.0);
-    //     lines.line(p2, p2 * mult, 0.0);
-    // }
-
-    let mut i = 0;
-    let mut corners = [Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, Vec3::ZERO];
 
     let mut iter = query.iter_combinations();
 
-    while let Some([(point1, normal1), 
-        (point2, normal2),
-        (point3, normal3)]) =
+    while let Some([(point1), 
+        (point2),
+        (point3)]) =
         iter.fetch_next()
     {
         let corner = point1.0 + point2.0 + point3.0;
@@ -118,9 +159,36 @@ fn draw_bounds(
 
         for i in 0..3{
             let mut mult = Vec3::ONE;
-            mult[i] = mult[i] * 0.75; 
+            mult[i] = mult[i] * 0.9; 
 
             lines.line(corner, corner * mult, 0.0);
+        }
+    }
+
+    // Gross code to update the line position of the bounds
+    for (mut point) in &mut query{
+        if(point.0[0] != 0.0){
+            if(point.0[0] < 0.0){
+                point.0[0] = coll_params.bottom_point[0];
+                continue;
+            }
+            point.0[0] = coll_params.top_point[0];
+        }
+
+        if(point.0[1] != 0.0){
+            if(point.0[1] < 0.0){
+                point.0[1] = coll_params.bottom_point[1];
+                continue;
+            }
+            point.0[1] = coll_params.top_point[1];
+        }
+
+        if(point.0[2] != 0.0){
+            if(point.0[2] < 0.0){
+                point.0[2] = coll_params.bottom_point[2];
+                continue;
+            }
+            point.0[2] = coll_params.top_point[2];
         }
     }
 
@@ -418,7 +486,7 @@ fn plane_collision(
         for (point, normal) in &mut planes{
 
             // If we are inside of the bounds or outside, but moving back into bounds continue
-            if (transform.translation - point.0).dot(normal.0) > 0.0 || velocity.0.dot(normal.0) > 0.0{
+            if (transform.translation - point.0).dot(normal.0) > 0.0{
                 continue;
             }
 

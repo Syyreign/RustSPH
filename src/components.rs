@@ -70,3 +70,18 @@ impl Default for FluidParameters{
         }
     }
 }
+
+#[derive(Resource)]
+pub(crate) struct CollisionParameters {
+    pub(crate) top_point: Vec3,
+    pub(crate) bottom_point: Vec3,
+}
+
+impl Default for CollisionParameters{
+    fn default() -> Self {
+        CollisionParameters { 
+            top_point: Vec3::ONE * 2.0,
+            bottom_point: Vec3::NEG_ONE * 2.0,
+        }
+    }
+}
