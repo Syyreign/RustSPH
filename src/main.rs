@@ -5,6 +5,8 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_prototype_debug_lines::*;
 
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
+
 use components::*;
 use rand::Rng;
 
@@ -20,11 +22,13 @@ fn main(){
         .add_plugin(DebugLinesPlugin::default())
         .add_startup_system(setup_scene)
         .add_startup_system(generate_fluid)
+        .add_plugin(LogDiagnosticsPlugin::default())
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .insert_resource(ClearColor(Color::rgb(1.0, 1.0, 1.0)))
         .init_resource::<FluidParameters>()
         .init_resource::<CollisionParameters>()
         .add_system(spawn_particle,)
         .add_system(ui_system)
-        //.add_system(draw_bounds)
         .add_systems((
             draw_bounds,
             clean_particle, 
@@ -145,9 +149,9 @@ fn draw_bounds(
 
     let mut iter = query.iter_combinations();
 
-    while let Some([(point1), 
-        (point2),
-        (point3)]) =
+    while let Some([point1, 
+        point2,
+        point3]) =
         iter.fetch_next()
     {
         let corner = point1.0 + point2.0 + point3.0;
@@ -161,7 +165,7 @@ fn draw_bounds(
             let mut mult = Vec3::ONE;
             mult[i] = mult[i] * 0.9; 
 
-            lines.line(corner, corner * mult, 0.0);
+            lines.line_colored(corner, corner * mult, 0.0, Color::rgb(0.0, 0.0, 0.0));
         }
     }
 
@@ -202,36 +206,39 @@ fn spawn_particle(
     keyboard_input: Res<Input<KeyCode>>,
 ){
     if keyboard_input.just_pressed(KeyCode::P) {
-        let mesh = meshes.add(
-            Mesh::try_from(shape::Icosphere {
-                radius: 0.1,
-                subdivisions: 3,
-            })
-            .unwrap(),
-        );
 
-        let mut rng = rand::thread_rng();
-        let position = Vec3::new(rng.gen_range(-0.5..0.5), 1.0, rng.gen_range(-0.5..0.5));
+        for _ in 0..10{
+            let mesh = meshes.add(
+                Mesh::try_from(shape::Icosphere {
+                    radius: 0.1,
+                    subdivisions: 3,
+                })
+                .unwrap(),
+            );
 
-        commands.spawn((components::ParticleBundle {
-            pbr: PbrBundle {
-                transform: Transform {
-                    translation: position,
+            let mut rng = rand::thread_rng();
+            let position = Vec3::new(rng.gen_range(-0.5..0.5), 1.0, rng.gen_range(-0.5..0.5));
+
+            commands.spawn((components::ParticleBundle {
+                pbr: PbrBundle {
+                    transform: Transform {
+                        translation: position,
+                        ..default()
+                    },
+                    mesh: mesh.clone(),
+                    material: materials.add(Color::rgb(0.4, 0.98, 1.0).into()),
                     ..default()
                 },
-                mesh: mesh.clone(),
-                material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
-                ..default()
+                mass: components::Mass(params.mass),
+                density: components::Density(0.0),
+                pressure: components::Pressure(0.0),
+                acceleration: components::Acceleration(Vec3::ZERO),
+                velocity: components::Velocity(Vec3::ZERO),
+                last_pos: components::LastPos(position),
             },
-            mass: components::Mass(params.mass),
-            density: components::Density(0.0),
-            pressure: components::Pressure(0.0),
-            acceleration: components::Acceleration(Vec3::ZERO),
-            velocity: components::Velocity(Vec3::ZERO),
-            last_pos: components::LastPos(position),
-        },
-        components::Particle,
-        ));
+            components::Particle,
+            ));
+        }
     }
 }
 
@@ -297,9 +304,9 @@ fn generate_fluid(
         .unwrap(),
     );
 
-    for i in 0..5{
-        for j in 0..5{
-            for k in 0..5{
+    for i in 0..10{
+        for j in 0..1{
+            for k in 0..10{
 
                 let position = Vec3::new(
                     0.0 + (i as f32 * 0.1) + (j as f32 * 0.06),
@@ -314,7 +321,7 @@ fn generate_fluid(
                             ..default()
                         },
                         mesh: mesh.clone(),
-                        material: materials.add(Color::rgb(0.1, 0.1, 0.8).into()),
+                        material: materials.add(Color::rgb(0.4, 0.98, 1.0).into()),
                         ..default()
                     },
                     mass: components::Mass(1.0),
@@ -355,7 +362,7 @@ fn update_pressure(
         delta = transform2.translation - transform1.translation;
         distance_sq = delta.length_squared();
 
-        if distance_sq > params.smoothing_radius{
+        if distance_sq > params.smoothing_radius * params.smoothing_radius{
             continue;
         }
 
@@ -404,7 +411,7 @@ fn update_acceleration(
         rij = transform1.translation - transform2.translation;
         distance_sq = rij.length_squared();
 
-        if distance_sq > params.smoothing_radius{
+        if distance_sq > params.smoothing_radius * params.smoothing_radius{
             continue;
         }
 
@@ -419,9 +426,9 @@ fn update_acceleration(
         if density1.0.abs() > params.near_zero && density2.0.abs() > params.near_zero && !rji.is_nan(){
 
             // Removed mass since all particles have the same mass
-            accel1.0 += -((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0)) 
+            accel1.0 += -((m1 * (pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0)))
                 * spiky * rij;
-            accel2.0 += -((pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0))
+            accel2.0 += -((m2 * (pressure1.0 + pressure2.0) / (2.0 * density1.0 * density2.0)))
             * spiky * rji;
         }
 
@@ -460,7 +467,7 @@ fn plane_repulsion(
     let mut distance_sq: f32 = 0.0;
     let mut rij: Vec3;  
 
-    for (components::Mass(m), mut accel, transform) in &mut particles {
+    for (components::Mass(_m), mut accel, transform) in &mut particles {
         for (point, normal) in &mut planes{
             rij = point.0 * normal.0.abs() - (transform.translation * normal.0.abs());
             distance_sq = (rij).length_squared();
@@ -509,8 +516,8 @@ fn get_poly6_smoothing(distance_sq: f32, smoothing_radius: f32) -> f32{
 
     let mut poly6 = (smoothing_radius * smoothing_radius) - distance_sq;
 
-    poly6 = f32::powf(poly6, 3.0);
-    poly6 = (945.0 / (32.0 * PI * f32::powf(smoothing_radius, 9.0))) * poly6;
+    poly6 = f32::powf(poly6, 4.0);
+    poly6 = (315.0 / (64.0 * PI * f32::powf(smoothing_radius, 12.0))) * poly6;
 
     poly6
 }

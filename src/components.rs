@@ -59,7 +59,7 @@ impl Default for FluidParameters{
         FluidParameters { 
             delta_time: 0.01,
             smoothing_radius: 0.5,
-            pressure_constant: 15.0,
+            pressure_constant: 25.0,
             reference_density: 15.0,
             max_acceleration: 100.0,
             max_velocity: 100.0,
