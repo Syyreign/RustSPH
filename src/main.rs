@@ -1,4 +1,4 @@
-use std::{f32::consts::PI, ops::DerefMut};
+use std::{f32::consts::PI};
 
 use bevy::app::App;
 use bevy::prelude::*;
@@ -56,7 +56,10 @@ fn ui_system(mut contexts: EguiContexts,
     mut commands: Commands, 
     mut camera_query: Query<&mut Transform, With<components::GameCamera>>,
     query: Query<Entity, With<Particle>>) {
-    egui::Window::new("Controls").show(contexts.ctx_mut(), |ui| {
+    egui::Window::new("Controls")
+    .default_size(egui::vec2(200 as f32, 400 as f32))
+    .resizable(true)
+    .show(contexts.ctx_mut(), |ui| {
         ui.label("Fluid Controls");
 
         ui.add(
@@ -176,6 +179,13 @@ fn ui_system(mut contexts: EguiContexts,
                     let current_demo = &components::DEMOS[index];
                     spawn_fluid(&current_demo.fluid_parameters, &current_demo.simulation_parameters, &mut commands, &mut meshes, &mut materials);
                 }
+                if ui.button("Dam Break").clicked() {
+                    let index = 3;
+                    set_demo(&mut camera_query, &query, &mut commands, index);
+
+                    let current_demo = &components::DEMOS[index];
+                    spawn_fluid(&current_demo.fluid_parameters, &current_demo.simulation_parameters, &mut commands, &mut meshes, &mut materials);
+                }
             });
 
             if ui.button("Restart Simulation").clicked(){
@@ -184,6 +194,17 @@ fn ui_system(mut contexts: EguiContexts,
                 });
 
                 spawn_fluid(&fluid_parameters , &simulation_parameters, &mut commands, &mut meshes, &mut materials);
+            }
+        });
+
+        ui.horizontal(|ui|{
+            if ui.button("Spawn Particles").clicked(){
+                for _ in 0..10{
+                    let mut rng = rand::thread_rng();
+                    let mut position = Vec3::new(rng.gen_range(-0.5..0.5), 1.0, rng.gen_range(-0.5..0.5));
+        
+                    spawn_particle(&mut commands, &mut meshes, &mut position, &mut materials, fluid_parameters.mass);
+                }
             }
 
             if ui.button("Delete Fluid").clicked(){
@@ -335,8 +356,7 @@ fn spawn_particle(
     ));
 }
 
-fn setup_scene(    
-    mut simulation_parameters: ResMut<SimulationParameters>,
+fn setup_scene(
     mut commands: Commands,
 ){
     commands.spawn(PointLightBundle {
@@ -407,7 +427,7 @@ fn spawn_fluid(
 ){
 
     let num = &simulation_parameters.num_particles;
-    let bottom_corner = simulation_parameters.particle_origin - ((simulation_parameters.num_particles * 0.5) / 2.0);
+    let bottom_corner = simulation_parameters.particle_origin - ((simulation_parameters.num_particles * simulation_parameters.particle_distance) / 2.0);
 
     for i in 0..num[0].round() as u32{
         for j in 0..num[1].round() as u32{
@@ -416,7 +436,7 @@ fn spawn_fluid(
                 let mut rng = rand::thread_rng();
                 let rand_offset = Vec3::new(rng.gen_range(-0.2..0.2), rng.gen_range(-0.2..0.2), rng.gen_range(-0.2..0.2));
 
-                let mut position = bottom_corner + (Vec3::new(i as f32, j as f32, k as f32) * 0.5);
+                let mut position = bottom_corner + (Vec3::new(i as f32, j as f32, k as f32) * simulation_parameters.particle_distance);
                 position += rand_offset;
 
                 spawn_particle(commands, meshes, &mut position, materials, fluid_parameters.mass);
@@ -488,6 +508,8 @@ fn update_acceleration(
     let mut vjvi: Vec3;
     let mut visc: f32;
 
+    let mut gravity_vec: Vec3;
+
     let mut pressure_force: Vec3;
     let mut visc_force: Vec3;
 
@@ -536,14 +558,9 @@ fn update_acceleration(
     // Add gravity and clamp
     for (_mass, transform, _density, _pressure, mut accel, _velocity) in &mut query {
         
-        if simulation_parameters.planet_gravity{
-            let gravity_vec = (transform.translation - Vec3::ZERO).normalize_or_zero();
+        gravity_vec = get_gravity_vector(transform.translation, simulation_parameters.planet_gravity);
 
-            accel.0 += gravity_vec * fluid_parameters.gravity;
-        }
-        else{
-            accel.0 += Vec3{ x: 0.0, y: 1.0, z: 0.0} * fluid_parameters.gravity;
-        }
+        accel.0 += gravity_vec * fluid_parameters.gravity;
 
         if accel.0.length() > fluid_parameters.max_acceleration {
             accel.0 = accel.0.normalize() * fluid_parameters.max_acceleration;
@@ -552,9 +569,13 @@ fn update_acceleration(
 
 }
 
-fn get_gravity_vector() -> Vec3{
-
-    Vec3::ZERO
+fn get_gravity_vector(position: Vec3, planet_gravity: bool) -> Vec3{
+    if planet_gravity{
+        (position - Vec3::ZERO).normalize_or_zero()
+    }
+    else{
+        Vec3::new(0.0, 1.0, 0.0)
+    }
 }
 
 fn plane_repulsion(
@@ -564,7 +585,7 @@ fn plane_repulsion(
         With<components::Particle>>,
     mut planes: Query<(&components::Point, &components::Normal), With<components::Plane>>,
 ){
-    let mut distance_sq: f32 = 0.0;
+    let mut distance_sq: f32;
     let mut rij: Vec3;  
 
     for (components::Mass(_m), mut accel, transform) in &mut particles {
