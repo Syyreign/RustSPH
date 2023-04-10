@@ -554,6 +554,7 @@ fn update_acceleration(
 
 fn get_gravity_vector() -> Vec3{
 
+    Vec3::ZERO
 }
 
 fn plane_repulsion(
