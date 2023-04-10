@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
 #[derive(Component)]
+pub(crate) struct GameCamera;
+
+#[derive(Component)]
 pub(crate) struct Particle;
 #[derive(Component, Default)]
 pub(crate) struct Mass(pub(crate) f32);
@@ -40,7 +43,7 @@ pub(crate) struct PlaneBundle{
     pub(crate) normal: Normal,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub(crate) struct FluidParameters {
     pub(crate) delta_time: f32,
     pub(crate) smoothing_radius: f32,
@@ -71,17 +74,115 @@ impl Default for FluidParameters{
     }
 }
 
-#[derive(Resource)]
-pub(crate) struct CollisionParameters {
+#[derive(Resource, Clone)]
+pub(crate) struct SimulationParameters {
     pub(crate) top_point: Vec3,
     pub(crate) bottom_point: Vec3,
+    pub(crate) num_particles: Vec3,
+    pub(crate) particle_origin: Vec3,
+    pub(crate) camera_position: Vec3,
+    pub(crate) camera_target: Vec3,
+    pub(crate) planet_gravity: bool,
 }
 
-impl Default for CollisionParameters{
+impl Default for SimulationParameters{
     fn default() -> Self {
-        CollisionParameters { 
-            top_point: Vec3::ONE * 2.0,
-            bottom_point: Vec3::NEG_ONE * 2.0,
+        SimulationParameters { 
+            top_point: Vec3::new(2.0, 2.0, 2.0),
+            bottom_point: Vec3::new(-2.0, -2.0 ,-2.0),
+            num_particles: Vec3::new(6.0, 6.0 ,6.0),
+            particle_origin: Vec3::new(0.0, 0.0 ,0.0),
+            camera_position: Vec3::new(6.0, 3.0, 6.0),
+            camera_target: Vec3::new(0.0, 0.0, 0.0),
+            planet_gravity: false,
         }
     }
 }
+
+#[derive(Clone)]
+pub(crate) struct Demo{
+    pub(crate) fluid_parameters: FluidParameters,
+    pub(crate) simulation_parameters: SimulationParameters,
+}
+
+impl Default for Demo{
+    fn default() -> Self {
+        Demo{
+            fluid_parameters: FluidParameters::default(),
+            simulation_parameters: SimulationParameters::default(),
+        }
+    }
+}
+
+pub(crate) const DEMOS: [Demo;3] = 
+[
+    Demo{
+        fluid_parameters: FluidParameters { 
+            delta_time: 0.01,
+            smoothing_radius: 0.5,
+            pressure_constant: 25.0,
+            reference_density: 15.0,
+            max_acceleration: 100.0,
+            max_velocity: 100.0,
+            mass: 1.0,
+            viscosity_coef: 0.02, 
+            gravity: -9.8,
+            near_zero: 0.0000001,
+        },
+        simulation_parameters: SimulationParameters { 
+            top_point: Vec3::new(2.0, 2.0, 2.0),
+            bottom_point: Vec3::new(-2.0, -2.0 ,-2.0),
+            num_particles: Vec3::new(6.0, 6.0 ,6.0),
+            particle_origin: Vec3::new(0.0, 0.0 ,0.0),
+            camera_position: Vec3::new(6.0, 3.0, 6.0),
+            camera_target: Vec3::ZERO,
+            planet_gravity: false,
+        }
+    },
+    Demo{
+        fluid_parameters: FluidParameters { 
+            delta_time: 0.015,
+            smoothing_radius: 0.5,
+            pressure_constant: 25.0,
+            reference_density: 15.0,
+            max_acceleration: 150.0,
+            max_velocity: 150.0,
+            mass: 1.0,
+            viscosity_coef: 0.1, 
+            gravity: -9.8,
+            near_zero: 0.0000001,
+        },
+        simulation_parameters: SimulationParameters { 
+            top_point: Vec3::new(2.0, 2.0, 2.0),
+            bottom_point: Vec3::new(-2.0, -2.0 ,-2.0),
+            num_particles: Vec3::new(7.0, 9.0 ,7.0),
+            particle_origin: Vec3::new(0.0, 0.0 ,0.0),
+            camera_position: Vec3::new(6.0, 3.0, 6.0),
+            camera_target: Vec3::ZERO,
+            planet_gravity: false,
+        }
+    },
+    Demo{
+        fluid_parameters: FluidParameters { 
+            delta_time: 0.015,
+            smoothing_radius: 0.5,
+            pressure_constant: 25.0,
+            reference_density: 15.0,
+            max_acceleration: 150.0,
+            max_velocity: 150.0,
+            mass: 1.0,
+            viscosity_coef: 0.1, 
+            gravity: -9.8,
+            near_zero: 0.0000001,
+        },
+        simulation_parameters: SimulationParameters { 
+            top_point: Vec3::new(3.0, 3.0, 3.0),
+            bottom_point: Vec3::new(-3.0, -3.0 ,-3.0),
+            num_particles: Vec3::new(7.0, 9.0 ,7.0),
+            particle_origin: Vec3::new(0.0, 0.0 ,0.0),
+            camera_position: Vec3::new(6.0, 3.0, 6.0),
+            camera_target: Vec3::ZERO,
+            planet_gravity: true,
+        }
+    }
+];
