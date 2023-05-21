@@ -14,6 +14,10 @@ This demo was run on a Surface Laptop 4
 
 As described above, Rust was chosen as the programming langauge for this project. I have been attempting to learn Rust for several years, but always felt that I wasn't quite getting it. This project was an attempt to work through that. Bevy was chosen as it has a simple way of rendering spheres, and contains an ECS system. This project was written for CSC473 at the Univeristy of Victoria, taught by Brandon Haworth in spring 2023.
 
+### Paper
+
+[CSC473_SPHFinalPaper.pdf](https://github.com/Syyreign/RustSPH/files/11523717/CSC473_SPHFinalPaper.pdf)
+
 ### Particles
 
 The particles of this simulation are simple entities spheres controlled by a fluid system. Since this simulation runs primarily on the CPU, the amount of particles that can be rendered is rather limited.
