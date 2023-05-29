@@ -16,7 +16,7 @@ As described above, Rust was chosen as the programming langauge for this project
 
 ### Paper
 
-[CSC473_SPHFinalPaper.pdf](https://github.com/Syyreign/RustSPH/files/11523717/CSC473_SPHFinalPaper.pdf)
+[CSC473_SPHFinalPaper.pdf](https://github.com/Syyreign/RustSPH/files/11589816/CSC473_SPHFinalPaper.pdf)
 
 ### Particles
 
